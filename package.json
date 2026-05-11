@@ -1,6 +1,0 @@
-{
-  "scripts": {
-    "build": "cd admin && npm install && npm run build",
-    "dev": "cd admin && npm run dev"
-  }
-}
