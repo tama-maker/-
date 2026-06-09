@@ -33,6 +33,9 @@ export default function DashboardPage() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
   const [filter, setFilter]         = useState<Filter>('all');
+  const [selected, setSelected]     = useState<Set<number>>(new Set());
+  const [reporting, setReporting]   = useState(false);
+  const [reportMsg, setReportMsg]   = useState('');
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login');
@@ -55,6 +58,48 @@ export default function DashboardPage() {
   useEffect(() => {
     if (status === 'authenticated') load();
   }, [status, load]);
+
+  const toggleSelect = (row: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(row) ? next.delete(row) : next.add(row);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelected((prev) =>
+      prev.size === filtered.length ? new Set() : new Set(filtered.map((a) => a.row))
+    );
+  };
+
+  const report = async () => {
+    const targets = applicants.filter((a) => selected.has(a.row));
+    setReporting(true);
+    setReportMsg('');
+    try {
+      const res = await fetch('/api/slack-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicants: targets.map((a) => ({
+            row: a.row,
+            name: a.name,
+            finalJudge: a.finalJudge,
+            jobType: a.jobType,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setReportMsg('Slackに報告しました');
+      setSelected(new Set());
+    } catch (e) {
+      setReportMsg(e instanceof Error ? e.message : '送信失敗');
+    } finally {
+      setReporting(false);
+    }
+  };
 
   if (status === 'loading') return <div className="flex items-center justify-center min-h-screen text-gray-400">読み込み中...</div>;
   if (status === 'unauthenticated') return null;
@@ -105,7 +150,7 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* フィルター + リフレッシュ */}
+        {/* フィルター + リフレッシュ + 報告 */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex gap-2">
             {(['all', 'pending', 'graded', 'error'] as Filter[]).map((f) => (
@@ -120,13 +165,29 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-40"
-          >
-            {loading ? '読み込み中...' : '更新'}
-          </button>
+          <div className="flex items-center gap-3">
+            {reportMsg && (
+              <span className={`text-sm ${reportMsg.includes('失敗') || reportMsg.includes('error') ? 'text-red-600' : 'text-green-600'}`}>
+                {reportMsg}
+              </span>
+            )}
+            {selected.size > 0 && (
+              <button
+                onClick={report}
+                disabled={reporting}
+                className="px-4 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-40"
+              >
+                {reporting ? '送信中...' : `Slackに報告 (${selected.size}件)`}
+              </button>
+            )}
+            <button
+              onClick={load}
+              disabled={loading}
+              className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-40"
+            >
+              {loading ? '読み込み中...' : '更新'}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -140,6 +201,14 @@ export default function DashboardPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && selected.size === filtered.length}
+                    onChange={toggleAll}
+                    className="cursor-pointer"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">行</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">氏名</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">メール</th>
@@ -154,20 +223,28 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-gray-100">
               {loading && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">読み込み中...</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">読み込み中...</td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">データがありません</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">データがありません</td>
                 </tr>
               )}
               {filtered.map((a) => (
                 <tr
                   key={a.row}
-                  className="hover:bg-gray-50 cursor-pointer"
+                  className={`hover:bg-gray-50 cursor-pointer ${selected.has(a.row) ? 'bg-blue-50' : ''}`}
                   onClick={() => router.push(`/applicant/${a.row}`)}
                 >
+                  <td className="px-4 py-3" onClick={(e) => toggleSelect(a.row, e)}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(a.row)}
+                      onChange={() => {}}
+                      className="cursor-pointer"
+                    />
+                  </td>
                   <td className="px-4 py-3 text-gray-400">{a.row}</td>
                   <td className="px-4 py-3 font-medium">{a.name}</td>
                   <td className="px-4 py-3 text-gray-500">{a.email}</td>
