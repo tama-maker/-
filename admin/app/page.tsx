@@ -215,7 +215,8 @@ export default function DashboardPage() {
                 <th className="px-4 py-3 text-left font-medium text-gray-600">回答日時</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">AI使用</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">採点状況</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">合否</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">AI判定</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">人間判定</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">採点日時</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -223,12 +224,12 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-gray-100">
               {loading && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">読み込み中...</td>
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-400">読み込み中...</td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">データがありません</td>
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-400">データがありません</td>
                 </tr>
               )}
               {filtered.map((a) => (
@@ -256,6 +257,11 @@ export default function DashboardPage() {
                   </td>
                   <td className="px-4 py-3">{statusBadge(a.gradingStatus)}</td>
                   <td className="px-4 py-3">{finalJudgeBadge(a.finalJudge)}</td>
+                  <td className="px-4 py-3">
+                    {a.humanGradedAt
+                      ? finalJudgeBadge(a.humanJudge)
+                      : <span className="text-xs text-yellow-700 bg-yellow-50 px-2 py-0.5 rounded">未</span>}
+                  </td>
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{a.gradedAt}</td>
                   <td className="px-4 py-3">
                     <span className="text-blue-600 hover:text-blue-800 text-xs font-medium">詳細 →</span>

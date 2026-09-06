@@ -58,6 +58,8 @@ export default function ApplicantPage() {
   const [saving, setSaving]         = useState(false);
   const [saveMsg, setSaveMsg]       = useState('');
   const [promptChecks, setPromptChecks] = useState<boolean[]>(Array(7).fill(false));
+  const [humanSaving, setHumanSaving] = useState(false);
+  const [humanMsg, setHumanMsg]       = useState('');
 
   const toggleCheck = (i: number) =>
     setPromptChecks((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
@@ -74,7 +76,7 @@ export default function ApplicantPage() {
     if (status === 'unauthenticated') router.push('/login');
   }, [status, router]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { keepChecks?: boolean }) => {
     setLoading(true);
     setError('');
     try {
@@ -84,7 +86,8 @@ export default function ApplicantPage() {
       setApplicant(data);
       setFinalJudge(data.finalJudge ?? '');
       setNotes(data.notes ?? '');
-      setPromptChecks(parsePromptChecks(data.promptChecks ?? ''));
+      // 採点後の再読み込みでは、手入力中のチェックリストを上書きしない
+      if (!opts?.keepChecks) setPromptChecks(parsePromptChecks(data.promptChecks ?? ''));
       if (data.jobType) setJobType(data.jobType as JobType);
       if (data.gradingResultJson) {
         setResult(JSON.parse(data.gradingResultJson) as GradingResult);
@@ -123,7 +126,8 @@ export default function ApplicantPage() {
       }
       if (!res.ok) throw new Error(json.error ?? '採点に失敗しました');
       if (json.result) setResult(json.result);
-      await load();
+      // 採点でチェックリストがリセットされないよう、手入力中の状態を保持する
+      await load({ keepChecks: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -149,10 +153,11 @@ export default function ApplicantPage() {
     setSaving(true);
     setSaveMsg('');
     try {
+      // finalJudge(=合否/AI判定列)は保存しない。人間の判断は /api/human-judge へ分離。
       const res = await fetch(`/api/applicants/${row}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ finalJudge, notes, promptChecks: JSON.stringify(promptChecks), jobType, ...(result ? { gradingResultJson: JSON.stringify(result) } : {}) }),
+        body: JSON.stringify({ notes, promptChecks: JSON.stringify(promptChecks), jobType, ...(result ? { gradingResultJson: JSON.stringify(result) } : {}) }),
       });
       if (!res.ok) throw new Error(await res.text());
       setSaveMsg('保存しました');
@@ -160,6 +165,26 @@ export default function ApplicantPage() {
       setSaveMsg(e instanceof Error ? e.message : '保存に失敗しました');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 人間の最終判断を保存（合格/不合格/取り消し）。AI判定(合否列)には触れない。
+  const handleHumanJudge = async (judge: '合格' | '不合格' | '') => {
+    setHumanSaving(true);
+    setHumanMsg('');
+    try {
+      const res = await fetch(`/api/human-judge/${row}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ judge }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setHumanMsg(judge === '' ? '取り消しました' : '保存しました');
+      await load({ keepChecks: true });
+    } catch (e) {
+      setHumanMsg(e instanceof Error ? e.message : '保存に失敗しました');
+    } finally {
+      setHumanSaving(false);
     }
   };
 
@@ -368,22 +393,50 @@ export default function ApplicantPage() {
           </section>
         )}
 
-        {/* 採用判断・備考 */}
-        <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-          <h2 className="font-semibold text-gray-700">採用判断・備考</h2>
-          <div className="flex items-center gap-4">
-            <label className="text-sm text-gray-500 w-16 shrink-0">合否</label>
-            <select
-              value={finalJudge}
-              onChange={(e) => setFinalJudge(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700"
-            >
-              <option value="">未判定</option>
-              <option value="合格">合格</option>
-              <option value="不合格">不合格</option>
-              <option value="保留">保留</option>
-            </select>
+        {/* 判定（AI／人間）・備考 */}
+        <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+          <h2 className="font-semibold text-gray-700">判定</h2>
+
+          {/* AI判定（自動・読み取り専用） と 人間の最終判断 の並記 */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="text-xs text-gray-400 font-semibold mb-1">AI判定（自動）</div>
+              <span className={`inline-block px-3 py-1 rounded-lg text-sm font-bold ${OVERALL_STYLE[finalJudge] ?? 'bg-gray-100 text-gray-500'}`}>
+                {finalJudge || '未採点'}
+              </span>
+              {applicant.gradedAt && <div className="text-xs text-gray-400 mt-1">採点日時: {applicant.gradedAt}</div>}
+            </div>
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="text-xs text-gray-400 font-semibold mb-1">人間の最終判断</div>
+              {applicant.humanGradedAt ? (
+                <>
+                  <span className={`inline-block px-3 py-1 rounded-lg text-sm font-bold ${OVERALL_STYLE[applicant.humanJudge] ?? 'bg-gray-100 text-gray-500'}`}>
+                    {applicant.humanJudge || '—'}
+                  </span>
+                  <div className="text-xs text-gray-400 mt-1">採点者: {applicant.grader || '不明'} / {applicant.humanGradedAt}</div>
+                </>
+              ) : (
+                <span className="inline-block px-3 py-1 rounded-lg text-sm bg-yellow-50 text-yellow-700 font-medium">人間 未採点</span>
+              )}
+            </div>
           </div>
+
+          {/* 人間の最終判断を入力 */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-gray-500">最終判断を入力:</span>
+            <button onClick={() => handleHumanJudge('合格')} disabled={humanSaving}
+              className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition">合格</button>
+            <button onClick={() => handleHumanJudge('不合格')} disabled={humanSaving}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition">不合格</button>
+            {applicant.humanGradedAt && (
+              <button onClick={() => handleHumanJudge('')} disabled={humanSaving}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-500 text-sm hover:bg-gray-50 disabled:opacity-50 transition">取り消し</button>
+            )}
+            {humanSaving && <span className="text-sm text-gray-400">保存中...</span>}
+            {humanMsg && <span className="text-sm text-gray-500">{humanMsg}</span>}
+          </div>
+
+          {/* 備考 */}
           <div className="flex gap-4">
             <label className="text-sm text-gray-500 w-16 shrink-0 pt-2">備考</label>
             <textarea
@@ -400,7 +453,7 @@ export default function ApplicantPage() {
               disabled={saving}
               className="px-5 py-2 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 disabled:opacity-50 transition"
             >
-              {saving ? '保存中...' : '保存する'}
+              {saving ? '保存中...' : '備考を保存'}
             </button>
             {saveMsg && <span className="text-sm text-gray-500">{saveMsg}</span>}
           </div>

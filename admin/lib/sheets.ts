@@ -24,6 +24,10 @@ const COL = {
   RESULT_JSON:  '採点結果JSON',
   PROMPT_CHECKS: 'プロンプト評価',
   JOB_TYPE:      '職種',
+  DESIRED_JOB_TYPE: '希望職種',   // フォームで応募者が選ぶ職種（自動採点の判定に使用）
+  HUMAN_JUDGE:  '人間合否',        // 人間の最終判断
+  GRADER:       '採点者',
+  HUMAN_GRADED_AT: '人間採点日時', // 入っていれば人間採点済み
 };
 
 function normalize(h: unknown): string {
@@ -133,6 +137,10 @@ export async function getApplicants(): Promise<ApplicantRow[]> {
         gradingError:      get(COL.ERROR),
         promptChecks:      get(COL.PROMPT_CHECKS),
         jobType:           get(COL.JOB_TYPE),
+        desiredJobType:    get(COL.DESIRED_JOB_TYPE),
+        humanJudge:        get(COL.HUMAN_JUDGE),
+        grader:            get(COL.GRADER),
+        humanGradedAt:     get(COL.HUMAN_GRADED_AT),
       } satisfies ApplicantRow;
     })
     .filter((a) => a.name.trim() !== '');
@@ -192,6 +200,60 @@ export async function writeGradingResult(
     { i: errorIdx,      v: error ?? '' },
   ];
   if (!error && finalJudge) writes.push({ i: finalJudgeIdx, v: finalJudge });
+
+  await Promise.all(writes.map(({ i, v }) =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${SHEET_NAME}'!${colLetter(i + 1)}${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[v]] },
+    }),
+  ));
+}
+
+// ===========================
+// 人間の最終判断を書き込む（AI採点列は上書きしない）
+// ===========================
+export async function writeHumanJudgement(
+  rowNumber: number,
+  fields: { humanJudge: string; grader?: string; clear?: boolean },
+): Promise<void> {
+  const sheets = await getSheetsClient();
+
+  const headersRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SHEET_NAME}'!1:1`,
+  });
+  const headers = (headersRes.data.values?.[0] ?? []).map(String);
+
+  const ensureCol = async (name: string): Promise<number> => {
+    const normed = normalize(name);
+    let i = headers.findIndex((h) => normalize(h) === normed);
+    if (i < 0) {
+      i = headers.length;
+      headers.push(name);
+      await expandColumnsIfNeeded(sheets, i + 1);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SHEET_NAME}'!${colLetter(i + 1)}1`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [[name]] },
+      });
+    }
+    return i;
+  };
+
+  const now = fields.clear
+    ? ''
+    : new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+
+  const writes: { i: number; v: string }[] = [
+    { i: await ensureCol(COL.HUMAN_JUDGE), v: fields.clear ? '' : fields.humanJudge },
+    { i: await ensureCol(COL.HUMAN_GRADED_AT), v: now },
+  ];
+  if (fields.grader !== undefined) {
+    writes.push({ i: await ensureCol(COL.GRADER), v: fields.clear ? '' : fields.grader });
+  }
 
   await Promise.all(writes.map(({ i, v }) =>
     sheets.spreadsheets.values.update({

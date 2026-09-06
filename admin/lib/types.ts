@@ -21,6 +21,10 @@ export interface ApplicantRow {
   gradingError: string;
   promptChecks: string;
   jobType: string;
+  desiredJobType: string;   // フォームの「希望職種」（自動採点の職種判定に使う）
+  humanJudge: string;       // 人間の最終判断（合格/不合格）
+  grader: string;           // 採点者
+  humanGradedAt: string;    // 人間採点日時（入っていれば人間採点済み）
 }
 
 export interface CriteriaItem {
