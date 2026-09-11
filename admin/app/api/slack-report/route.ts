@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { getApplicants } from '@/lib/sheets';
 
 interface ReportApplicant {
   row: number;
@@ -21,10 +22,18 @@ export async function POST(req: NextRequest) {
 
   const baseUrl = process.env.NEXTAUTH_URL ?? '';
 
+  // シートから最新状態を読み直す（一覧を更新していなくても正しい人間判定を報告する）
+  const all = await getApplicants();
+  const byRow = new Map(all.map((a) => [a.row, a]));
+
   const lines = applicants.map((a) => {
-    const judgeEmoji = a.humanJudge === '合格' ? '✅' : a.humanJudge === '不合格' ? '❌' : '⏸️';
+    const cur = byRow.get(a.row);
+    const name = cur?.name || a.name;
+    const jobType = cur?.jobType || a.jobType;
+    const humanJudge = cur?.humanJudge || '';
+    const judgeEmoji = humanJudge === '合格' ? '✅' : humanJudge === '不合格' ? '❌' : '⏸️';
     const url = `${baseUrl}/applicant/${a.row}`;
-    return `${judgeEmoji} *${a.name}*（${a.jobType || '職種未設定'}）— ${a.humanJudge || '人間未判定'}\n   <${url}|詳細を見る>`;
+    return `${judgeEmoji} *${name}*（${jobType || '職種未設定'}）— ${humanJudge || '人間未判定'}\n   <${url}|詳細を見る>`;
   });
 
   const text = `📋 *採点結果報告*（${applicants.length}件）\n報告者: ${session.user?.email}\n\n${lines.join('\n\n')}`;
