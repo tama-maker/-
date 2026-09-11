@@ -86,7 +86,7 @@ export default function DashboardPage() {
           applicants: targets.map((a) => ({
             row: a.row,
             name: a.name,
-            finalJudge: a.finalJudge,
+            humanJudge: a.humanJudge,
             jobType: a.jobType,
           })),
         }),

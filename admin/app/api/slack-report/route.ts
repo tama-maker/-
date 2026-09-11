@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth';
 interface ReportApplicant {
   row: number;
   name: string;
-  finalJudge: string;
+  humanJudge: string;
   jobType: string;
 }
 
@@ -22,9 +22,9 @@ export async function POST(req: NextRequest) {
   const baseUrl = process.env.NEXTAUTH_URL ?? '';
 
   const lines = applicants.map((a) => {
-    const judgeEmoji = a.finalJudge === '合格' ? '✅' : a.finalJudge === '不合格' ? '❌' : '⏸️';
+    const judgeEmoji = a.humanJudge === '合格' ? '✅' : a.humanJudge === '不合格' ? '❌' : '⏸️';
     const url = `${baseUrl}/applicant/${a.row}`;
-    return `${judgeEmoji} *${a.name}*（${a.jobType || '職種未設定'}）— ${a.finalJudge || '未判定'}\n   <${url}|詳細を見る>`;
+    return `${judgeEmoji} *${a.name}*（${a.jobType || '職種未設定'}）— ${a.humanJudge || '人間未判定'}\n   <${url}|詳細を見る>`;
   });
 
   const text = `📋 *採点結果報告*（${applicants.length}件）\n報告者: ${session.user?.email}\n\n${lines.join('\n\n')}`;
